@@ -9,6 +9,8 @@ PORT_JOYSTICK = 2225
 
 PIN = 7
 
+state = "Connect"
+
 chip = lgpio.gpiochip_open(0)
 
 lgpio.gpio_claim_input(chip, PIN)
@@ -20,15 +22,19 @@ def hud_server():
     server.listen(1)
     print(f"[HUD listening on {HOST}:{PORT_HUD}]")
     
-    conn,addr = server.accept()
-    print(f"[HUD] Connected to {addr}")
     while True:
-        data = conn.recv(1024)
-        if not data:
-            break
-        print("Recieved:", data.decode())
-        conn.sendall(b'ACK')
-    conn.close()
+        conn,addr = server.accept()
+        print(f"[HUD] Connected to {addr}")
+        while True:
+            data = conn.recv(1024)
+            if not data:
+                break
+            state = data.decode()
+            
+            print("Current:", state)
+            
+            conn.sendall(b'ACK')
+        conn.close()
     
 
     
@@ -38,16 +44,16 @@ def graph_server():
     server.bind((HOST, PORT_GRAPH))
     server.listen(1)
     print(f"[GRAPH] listening on {HOST}:{PORT_GRAPH}]")
-    
-    conn,addr = server.accept()
-    print(f"[GRAPH] Connected to {addr}")
     while True:
-        data = conn.recv(1024)
-        if not data:
-            break
-        value = lgpio.gpio_read(chip, PIN)
-        conn.sendall(str(value).encode())
-    conn.close()
+        conn,addr = server.accept()
+        print(f"[GRAPH] Connected to {addr}")
+        while True:
+            data = conn.recv(1024)
+            if not data:
+                break
+            value = lgpio.gpio_read(chip, PIN)
+            conn.sendall(str(value).encode())
+        conn.close()
     
 
    
@@ -57,24 +63,25 @@ def buttons_server():
     server.bind((HOST, PORT_BUTTONS))
     server.listen(1)
     print(f"[BUTTONS] listening on {HOST}:{PORT_BUTTONS}]")
-    
-    conn,addr = server.accept()
-    print(f"[BUTTONS] Connected to {addr}")
-    data = []
     while True:
-        data = conn.recv(1024)
-        if not data:
-            break
-        msg = data.decode().strip()
-        buttons = msg.split(",")
-        a = buttons[0]
-        b = buttons[1]
-        x = buttons[2]
-        y = buttons[3]
-        shoulder_l = buttons[4]
-        shoulder_r = buttons[5]
-        print(f"A: {a}\n, B = {b}\n, X = {x}\n, y = {y}\n, Shoulder left trigger: {shoulder_l}\n, Shoulder right trigger: {shoulder_r}")
-    conn.close()
+        conn,addr = server.accept()
+        print(f"[BUTTONS] Connected to {addr}")
+        data = []
+        while True:
+            data = conn.recv(1024)
+            if not data:
+                break
+            msg = data.decode().strip()
+            buttons = msg.split(",")
+            a = buttons[0]
+            b = buttons[1]
+            x = buttons[2]
+            y = buttons[3]
+            shoulder_l = buttons[4]
+            shoulder_r = buttons[5]
+            if states == "Operative"
+            print(f"A: {a}\n, B = {b}\n, X = {x}\n, y = {y}\n, Shoulder left trigger: {shoulder_l}\n, Shoulder right trigger: {shoulder_r}")
+        conn.close()
     
     
 def joystick_server():
@@ -83,23 +90,28 @@ def joystick_server():
     server.listen(1)
     print(f"[Joystick] listening on {HOST}:{PORT_JOYSTICK}]")
     
-    conn,addr = server.accept()
-    print(f"[Joystick] Connected to {addr}")
-    
-    data = []
     while True:
-        data = conn.recv(2048)
-        if not data:
-            break
-        msg = data.decode().strip()
+        conn,addr = server.accept()
+        print(f"[Joystick] Connected to {addr}")
         
-        values = msg.split(",")
-        car_turn = int(values[0])
-        car_speed = int(values[1])
-        turret_horizontal = int(values[2])
-        turret_vertical = int(values[3])
-        print(f"Car turning: {car_turn}, Car speed: {car_speed}, Turret horizontal: {turret_horizontal}, Turret vertical: {turret_vertical}")
-    conn.close()
+        data = []
+        while True:
+            data = conn.recv(2048)
+            if not data:
+                break
+            msg = data.decode().strip()
+            
+            values = msg.split(",")
+            car_turn = int(values[0])
+            car_speed = int(values[1])
+            turret_horizontal = int(values[2])
+            turret_vertical = int(values[3])
+            right_trig = int(values[4])
+            left_trig = int(values[5])
+            print(f"Car turning: {car_turn}, Car speed: {car_speed}, Turret horizontal: {turret_horizontal}, Turret vertical: {turret_vertical}, Firing: {right_trig}, Zooming: {left_trig}")
+            if states == "Operative":
+                
+        conn.close()
     
 
 
