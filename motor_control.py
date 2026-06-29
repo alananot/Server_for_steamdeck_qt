@@ -28,9 +28,12 @@ class CarMotor():
         speed *= 100
         turn *= 100
         
-        leftWheel = speed - turn
-        rightWheel = speed + turn
-        
+        orgleftWheel = speed - turn
+        orgrightWheel = speed + turn
+        #print("left", leftWheel)
+        #print("right", rightWheel)
+        leftWheel = orgleftWheel
+        rightWheel = orgrightWheel
         if(leftWheel > 100):
             leftWheel = 100
         elif(leftWheel < -100):
@@ -46,21 +49,21 @@ class CarMotor():
         self.pwmA.ChangeDutyCycle(abs(leftWheel))
         self.pwmB.ChangeDutyCycle(abs(rightWheel))
         
-        if(leftWheel> 0):
+        if(leftWheel > 0 and orgleftWheel < 100):
             GPIO.output(self.In1A,GPIO.LOW)
             GPIO.output(self.In2A,GPIO.HIGH)
         else:
             GPIO.output(self.In1A,GPIO.HIGH)
             GPIO.output(self.In2A,GPIO.LOW)
         
-        if(rightWheel > 0):
+        if(rightWheel > 0 and orgrightWheel < 100):
             GPIO.output(self.In1B,GPIO.LOW)
             GPIO.output(self.In2B,GPIO.HIGH)
         else:
             GPIO.output(self.In1B,GPIO.HIGH)
             GPIO.output(self.In2B,GPIO.LOW)
         
-        
+        print(GPIO.input(self.In1A), GPIO.input(self.In2A), orgleftWheel, GPIO.input(self.In1B), GPIO.input(self.In2B), orgrightWheel)
         sleep(t)
     def stop(self,t = 0):
         self.pwmA.ChangeDutyCycle(0);
@@ -92,6 +95,9 @@ class TurretMotor():
         vertical *= 100
         
         
+        #print("Turret Horizontal", horizontal)
+        #print("Turret vertical", vertical)
+        
         
         
         if(horizontal > 100):
@@ -122,7 +128,7 @@ class TurretMotor():
         else:
             GPIO.output(self.In1B,GPIO.HIGH)
             GPIO.output(self.In2B,GPIO.LOW)
-        
+        print(GPIO.input(self.In1A), GPIO.input(self.In2A), horizontal, GPIO.input(self.In1B), GPIO.input(self.In2B), vertical)
         
         sleep(t)
     def stop(self,t = 0):
