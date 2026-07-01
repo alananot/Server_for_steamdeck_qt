@@ -19,24 +19,61 @@ class shoot():
        
         
     
-    def shot(self,Canisters):
-         
-        
-        if(Canisters[0] == True):
-            GPIO.output(self.In1, GPIO.HIGH)
-            Canisters[0] = False
-            print("First canister launched")
-        elif(Canisters[0] == False and Canisters[1] == True):
-            GPIO.output(self.In2, GPIO.HIGH)
-            Canisters[1] = False
-            print("Second canister launched")
-        elif(Canisters[0] == False and Canisters[1] == False and Canisters[2] == True):
-            GPIO.output(self.In3, GPIO.HIGH)
-            Canisters[2] = False
-            print("Third canister launched")
+    def reload(self,Canisters, CurrentCanister):
+        if(Canisters[CurrentCanister] == False):
+            if(CurrentCanister == 0):
+                GPIO.output(self.In1, GPIO.LOW)
+                Canisters[CurrentCanister] = True
+                print("First canister reloaded")
+
+            elif(CurrentCanister == 1):
+                GPIO.output(self.In2, GPIO.LOW)
+                Canisters[CurrentCanister] = True
+                print("Second canister reloaded")
+            elif(CurrentCanister == 2):
+                GPIO.output(self.In3, GPIO.LOW)
+                Canisters[CurrentCanister] = True
+                print("Third canister reloaded")
+            return Canisters
         else:
-            print("All canisters empty")
-        return Canisters
+            for i in Canisters:
+                if(i == False):
+                    print("Canister ", CurrentCanister +1, " is already loaded")
+                    return Canisters
+            print("All Canisters are loaded")
+            return Canisters
+        
+    
+    def shot(self,Canisters, CurrentCanister):
+        
+
+            
+        
+        if(Canisters[CurrentCanister] == True):
+            if(CurrentCanister == 0):
+                GPIO.output(self.In1, GPIO.HIGH)
+                Canisters[CurrentCanister] = False
+                print("First canister launched")
+
+            elif(CurrentCanister == 1):
+                GPIO.output(self.In2, GPIO.HIGH)
+                Canisters[CurrentCanister] = False
+                print("Second canister launched")
+            elif(CurrentCanister == 2):
+                GPIO.output(self.In3, GPIO.HIGH)
+                Canisters[CurrentCanister] = False
+                print("Third canister launched")
+            return Canisters
+        else:
+            for i in Canisters:
+                if(i == True):
+                    print("Canister ",CurrentCanister +1, " is empty")
+                    return Canisters
+            print("All Canisters are empty")
+            return Canisters
+                    
+
+                
 
 class lights():
     def __init__(self,Ena, In1,In2):
