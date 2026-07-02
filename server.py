@@ -175,7 +175,7 @@ def joystick_server():
                 car_turn = int(values[0]) / -32768
                 car_speed = int(values[1]) / -32768
                 turret_horizontal = (int(values[2]) / -32768 + 1) * 135
-                turret_vertical = (int(values[3]) / -32768 + 1) * 45
+                turret_vertical = (int(values[3]) / -32768) *45
             except:
                 car_turn = car_speed = turret_horizontal = turret_vertical = 0
 

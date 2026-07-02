@@ -99,17 +99,18 @@ class TurretMotor:
 
     def _duty_270(self, angle):
         angle = max(min(angle, 270), 0)
-        duty = 2.5 + angle * 0.037
-       # print(f"[DUTY_270] Input: {angle}, Duty: {duty:.2f}")
+        duty = 2.5 + angle/27
+        #print(f"[DUTY_270] Input: {angle}, Duty: {duty:.2f}")
+        
         return duty
 
     def _duty_45(self, angle):
-        angle = max(min(angle, 45), -45)
-        duty = 7.5 + (angle / 18)
-        #print(f"[DUTY_45] Input: {angle}, Duty: {duty:.2f}")
+        angle = max(min(angle, 45), 0)
+        duty = 2.5 + (angle / 18)
+        print(f"[DUTY_45] Input: {angle}, Duty: {duty:.2f}")
         return duty
 
-    def move(self, horizontal=135, vertical=0, t=0):
+    def move(self, horizontal=135.0, vertical=45.0, t=0):
         #print(f"[MOVE] Horisontell: {horizontal}, Vertikal: {vertical}, Tid: {t}")
 
         horDuty = self._duty_270(horizontal)
@@ -163,7 +164,7 @@ if __name__ == "__main__":
 
     try:
         car.move(speed=0.5, steering_angle=20, t=1)
-        car.turret.move(horizontal=0.5, vertical=-0.3, t=1)
+        car.turret.move(horizontal=0, vertical=0, t=1)
         car.stop()
 
     except KeyboardInterrupt:
