@@ -12,7 +12,16 @@ PORT_GRAPH = 2223
 PORT_BUTTONS = 2224
 PORT_JOYSTICK = 2225
 
+GPIO.setmode(GPIO.BCM)
+PIN = 17
+Yellow = 19
+White = 26
+Green = 21
 
+GPIO.setup(PIN, GPIO.OUT)
+GPIO.setup(Yellow, GPIO.OUT)
+GPIO.setup(White, GPIO.OUT)
+GPIO.setup(Green, GPIO.OUT)
 
 state_lock = threading.Lock()
 state = "Connect"
@@ -197,11 +206,7 @@ def joystick_server():
 
 
 
-GPIO.setmode(GPIO.BCM)
-PIN = 17
-Yellow = 35
-White = 37
-Green = 40
+
 wheels = Car(
     EnaA=11, In1A=13, In2A=15,
     EnaB=29, In1B=31, In2B=33,
@@ -217,10 +222,7 @@ turret = wheels.turret
 shooting = shoot(19, 21, 23)
 light = lights(24, 26, 28)
 
-GPIO.setup(PIN, GPIO.OUT)
-GPIO.setup(Yellow, GPIO.OUT)
-GPIO.setup(White, GPIO.OUT)
-GPIO.setup(Green, GPIO.OUT)
+
 
 if state == "Connect":
     GPIO.output(Yellow, GPIO.HIGH)

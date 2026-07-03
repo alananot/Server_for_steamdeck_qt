@@ -1,0 +1,124 @@
+from picamera2 import Picamera2
+from ultralytics import YOLO
+import cv2
+import numpy as np
+import threading
+from flask import Flask, Response, jsonify
+
+app = Flask(__name__)
+
+model1 = YOLO('runs/detect/light-train-2/weights/best.pt')
+
+picam2 = Picamera2()
+picam2.configure(picam2.create_preview_configuration(main={"size": (640, 480)}))
+picam2.start()
+picam2.set_controls({"ExposureTime": 2000, "AnalogueGain": 16.0})
+
+FRAME_W = 640
+FRAME_H = 480
+LOCK_THRESHOLD = 3
+DEAD_ZONE = 8
+
+latest_frame = None
+latest_boxes = []
+lock = threading.Lock()
+smooth_cx = 0
+smooth_cy = 0
+smooth_x1 = 0
+smooth_y1 = 0
+smooth_x2 = 0
+smooth_y2 = 0
+locked_counter = 0
+is_locked = False
+
+def detection_thread():
+    global latest_boxes
+    while True:
+        with lock:
+            if latest_frame is None:
+                continue
+            frame = latest_frame.copy()
+        results = model1(frame, conf=0.15, verbose=False, imgsz=256)
+        with lock:
+            latest_boxes = list(results[0].boxes)
+
+t = threading.Thread(target=detection_thread, daemon=True)
+t.start()
+
+def process_frame():
+    global smooth_cx, smooth_cy, locked_counter, is_locked, latest_frame
+    global smooth_x1, smooth_y1, smooth_x2, smooth_y2
+
+    frame = picam2.capture_array()
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
+
+    # Highpass - gör allt mörkt svart, behåll bara ljusa saker
+    gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    _, mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+    mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
+    frame = cv2.bitwise_and(frame, mask_3ch)
+
+    with lock:
+        latest_frame = frame.copy()
+        all_boxes = latest_boxes.copy()
+
+    if len(all_boxes) > 0:
+        box = all_boxes[0]
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
+        raw_cx = (x1 + x2) // 2
+        raw_cy = (y1 + y2) // 2
+
+        # Rutan följer ljuset direkt - ingen smoothing
+        smooth_x1 = x1
+        smooth_y1 = y1
+        smooth_x2 = x2
+        smooth_y2 = y2
+        smooth_cx = raw_cx
+        smooth_cy = raw_cy
+
+        locked_counter = min(locked_counter + 1, LOCK_THRESHOLD + 1)
+    else:
+        locked_counter = max(locked_counter - 1, 0)
+
+    is_locked = locked_counter >= LOCK_THRESHOLD
+
+    if locked_counter > 0:
+        cv2.rectangle(frame, (smooth_x1, smooth_y1), (smooth_x2, smooth_y2), (0, 255, 255), 2)
+        cv2.circle(frame, (smooth_cx, smooth_cy), 8, (0, 255, 255), -1)
+        cv2.line(frame, (smooth_cx - 20, smooth_cy), (smooth_cx + 20, smooth_cy), (0, 255, 255), 2)
+        cv2.line(frame, (smooth_cx, smooth_cy - 20), (smooth_cx, smooth_cy + 20), (0, 255, 255), 2)
+
+    return frame
+
+def generate():
+    while True:
+        frame = process_frame()
+        _, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+
+@app.route('/video')
+def video():
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/video_frame')
+def video_frame():
+    frame = process_frame()
+    _, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    return Response(jpeg.tobytes(), mimetype='image/jpeg')
+
+@app.route('/status')
+def status():
+    return jsonify({"locked": is_locked, "cx": smooth_cx, "cy": smooth_cy})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080, threaded=True)
+
+
+
+
+
+
+
+
+

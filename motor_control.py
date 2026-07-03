@@ -60,7 +60,7 @@ class CarMotor:
         duty = abs(speed) * 100
         #print(f"[CarMotor] Duty cycle: {duty}")
 
-        direction = "forward" if speed > 0 else "reverse"
+        #direction = "forward" if speed > 0 else "reverse"
         #print(f"[CarMotor] Direction: {direction}")
 
         self.pwmA.ChangeDutyCycle(duty)
@@ -71,12 +71,17 @@ class CarMotor:
         GPIO.output(self.In1B, GPIO.LOW if speed > 0 else GPIO.HIGH)
         GPIO.output(self.In2B, GPIO.HIGH if speed > 0 else GPIO.LOW)
 
-        sleep(t)
+       # sleep(t)
 
     def stop(self):
        # print("[CarMotor] STOP (duty=0)")
         self.pwmA.ChangeDutyCycle(0)
         self.pwmB.ChangeDutyCycle(0)
+        GPIO.output(self.In1A, GPIO.HIGH)
+        GPIO.output(self.In2A, GPIO.HIGH)
+    
+        GPIO.output(self.In1B, GPIO.HIGH)
+        GPIO.output(self.In2B, GPIO.HIGH)
 
 
 class TurretMotor:
@@ -107,7 +112,7 @@ class TurretMotor:
     def _duty_45(self, angle):
         angle = max(min(angle, 45), 0)
         duty = 2.5 + (angle / 18)
-        print(f"[DUTY_45] Input: {angle}, Duty: {duty:.2f}")
+        #print(f"[DUTY_45] Input: {angle}, Duty: {duty:.2f}")
         return duty
 
     def move(self, horizontal=135.0, vertical=45.0, t=0):
@@ -121,7 +126,7 @@ class TurretMotor:
         self.pwmHor.ChangeDutyCycle(horDuty)
         self.pwmVert.ChangeDutyCycle(vertDuty)
 
-        sleep(t)
+        #sleep(t)
 
     def stop(self):
         #print("[STOP] Återställer horisontell servo till 7.5 duty")

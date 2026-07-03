@@ -36,9 +36,9 @@ class shoot():
                 print("Third canister reloaded")
             return Canisters
         else:
+            print("Canister ", CurrentCanister +1, " is already loaded")
             for i in Canisters:
                 if(i == False):
-                    print("Canister ", CurrentCanister +1, " is already loaded")
                     return Canisters
             print("All Canisters are loaded")
             return Canisters
@@ -91,16 +91,23 @@ class lights():
         GPIO.output(self.In1, GPIO.HIGH)
     
     def front(self, a = 0):
-        GPIO.output(self.In2, GPIO.HIGH)
+
+
 
         if(a == 1 and self.lightStrength != 100):
+            GPIO.output(self.In2, GPIO.HIGH)
             self.lightStrength = 100
             self.pwmA.ChangeDutyCycle(self.lightStrength)
             print("Beam lights on")
         else:
             self.lightStrength = 0
+            GPIO.output(self.In2, GPIO.LOW)
             self.pwmA.ChangeDutyCycle(self.lightStrength)
             print("Beam lights off")
+
+
+        
+
             
         
     
