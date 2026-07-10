@@ -89,7 +89,8 @@ def process_frame():
         cv2.circle(frame, (smooth_cx, smooth_cy), 8, (0, 255, 255), -1)
         cv2.line(frame, (smooth_cx - 20, smooth_cy), (smooth_cx + 20, smooth_cy), (0, 255, 255), 2)
         cv2.line(frame, (smooth_cx, smooth_cy - 20), (smooth_cx, smooth_cy + 20), (0, 255, 255), 2)
-        ser.write(smooth_cx,smooth_cy)
+        data_coord = "{smooth_cx,smooth_cy}\n"
+        ser.write(data_coord.encode('utf-8'))
 
     return frame
 
