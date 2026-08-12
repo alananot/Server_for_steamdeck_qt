@@ -1,0 +1,1350 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+// -------------------- WiFi Setup --------------------
+const char* ssid = "ESP32S3_AP";        //Local Wifi "Name"//
+const char* password = "Alex_2026_GUS";      //Local Wifi Password//
+
+WiFiServer hudServer(2222);             //Port for the HUD and States//
+WiFiServer graphServer(2223);           //Port for the graph//
+WiFiServer buttonsServer(2224);         //Port for button controls//
+WiFiServer joystickServer(2225);        //Port for joystick controls//
+WiFiClient hudClient;                   //Client that sends information for the HUD and State to the ESP//
+WiFiClient graphClient;                 //Client that recieves information from the ESP//
+WiFiClient buttonsClient;               //Client that sends information about buttons pressed and released to the ESP//
+WiFiClient joystickClient;              //Client that sends information about joystick movements to the ESP//
+
+float x2 = 0;
+float y2 = 0; 
+
+//--------------- Graph info ---------------//
+unsigned long lastGraphTime = 0; 
+float totalPower5v[100] = {};
+int totalAmount5v = 0;
+float totalPower3v3[100] = {};
+int totalAmount3v3 = 0;
+float totalPower14v[100] = {};
+int totalAmount14v = 0;
+
+//-------------- Idle timers and Idle variables ----------------//
+unsigned long idleStartTimer = 0;
+unsigned long idleCurrentTimer = 0;
+unsigned long idleResetStart = 0;
+bool left = false;
+bool autonomous = false;
+bool auto_spin = false;
+bool driving = false;
+
+//--------------------- Positional information -------------------//
+    float currentHorPos;  
+    float currentVertPos;
+    float currentHorCam = 150; 
+    //float calc_x = 0;
+    //float calc_y = 0;   
+    unsigned long currentLockedTime = 0;
+    unsigned long startLockedTime = 0;
+    int preVertPos = 0;
+//--------------------- Safety for controls ------------------------//
+bool joystickSafetyTriggered = false;
+bool hudSafetyTriggered = false;
+
+// -------------------- PCA9685 Servo Driver --------------------
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);    //Allows the usage of PWM to control servos //
+#define SERVO_MIN_CAR 200                                       //Minimum allowed value on the turning axel 90 degree//
+#define SERVO_MID 288                                           //Middle point for all non continous servos//
+#define SERVO_MAX_CAR 353                                       //Maximum allowed value on the turning axel 90 degree//
+#define TURRET_VERT_MIN 310                                     //The verticals servo maximum downwards angle//
+#define TURRET_VERT_MAX 180                                     //The vertical servo maximum upwards angle//
+//#define SERVO_DELAY 100
+//#define NUM_SERVOS 1
+#define TURRET_HOR 1                                            //The Servo controller pin for horizontal turret movement//
+#define TURRET_VERT 2                                           //The Servo controller pin for horizontal turret movement//
+#define TURRET_HOR_MAX 488                                      //The horizontal maximum angle to the right (270 degree)//
+#define TURRET_HOR_MIN 100                                      //The horizontal maximum angle to the left (270 degree)//
+#define SHOOTING_PIN 3                                          //The Servo controller pin for non-gas turret (180 degree with a cog)//
+#define SHOOTING_MAX 180                                        //All canisters empty//
+#define SHOOTING_MIN 195                                         //All canisters full//
+#define SHOOTING_ONE 240                                        //First canister empty//
+#define SHOOTING_TWO 275
+#define shot_one 260
+#define shot_two 290
+                                        //Second canister empty//
+#define SHOOTING_THREE 320                                      //Third canister empty//
+bool gas = true;                                                //Selection of gas or servo top//
+#define STEERING_CHANNEL 0                                      //The Servo controller pin for steering//
+bool canisters[] = {false, false, false};                       //The canisters on the top to see if they are empty or full//
+#define PWM_IN 13                                               //The pin to control speed forward//
+#define PWM_INH 14                                              //If the car is allowed to drive forward//
+#define PWM_IN2 21
+const int HEADLIGHT1 = 37;                                            //HEADLIGHT1 light2//
+#define CAM_PIN 4
+
+
+
+
+
+float first = 0;
+float second = 0;
+float third = 0;
+float fourth = 0;
+int check = 1;
+// -------------------- GPIO Pins --------------------
+//const int PIN = 1;
+//Control the status/rgb light//
+#define BLUE 10                                                 
+#define GREEN 11
+#define RED  12 
+
+/*
+#define MOTOR_ENA 4
+#define MOTOR_IN1 5
+#define MOTOR_IN2 6
+#define MOTOR_ENB 99
+
+#define MOTOR_IN4 16
+*/
+// --- NYA PINNAR FÖR SHOOT OCH LIGHTS ---
+#define SHOOT_IN1 2
+#define SHOOT_IN2 42
+#define SHOOT_IN3 21
+
+//#define LIGHT_ENA 38
+#define REARLIGHT2 40
+#define LIGHT_IN1 39 // Baklyktor
+#define LIGHT_IN2 38 // Framlyktor
+#define MAX_VARIABLES 100
+#define THREE_VOLT 17
+#define FIVE_VOLT 7
+#define FOURTEEN_VOLT 15
+#define GAS_SHOT_PIN 37
+#define RXD_PIN 44
+#define TXD_PIN 43
+
+
+
+// -------------------------------------------------------------------------------
+
+String state = "connect";                                       //Chooses the states//
+void set_state(String newState) { state = newState; }           //Assigns the new state based on the information recieved//
+String get_state() { return state; }                            //Recieves the new state//
+
+
+int CurrentCanister = 0;
+
+bool aimLocked = false;
+// ==========================================================
+//            HARDWARE CLASSES
+// ==========================================================
+
+
+
+
+void autonomousy(float x, float y, float dist){                             //Allows the top to follow autonomously//
+    float v = 0;                                                //Set vertical speed//
+    float h = 0;                                                //Set horizontal//
+    /*Serial.print(x);
+    Serial.print(", ");
+    Serial.println(y);*/
+    currentLockedTime = millis();
+    //If the IR is higher than the middle point of the screen the top moves upwards//
+    //Serial.println(x)
+    
+    if(aimLocked){
+        Serial.println("Aimlock on");
+ //       if()
+        //if(currentLockedTime - startLockedTime <= 1000){
+        aimLocked = false;
+        //}
+    }
+    else{
+        //Serial.println("Aimlock not on");
+    }
+    //Serial.println(currentLockedTime - startLockedTime);
+    /*if(aimLocked){
+        if(currentLockedTime -startLockedTime >= 1)
+        {
+
+            aimLocked = false;
+            Serial.println("Reaiming");
+        } 
+        else {
+            pwm.setPWM(TURRET_VERT, 0, currentVertPos);
+            //Serial.println("Reaiming");
+            turret_move(0,0);
+            return;
+        }
+    }*/
+    if (dist > 2.00 && aimLocked)
+    {
+  //          move(0.5f, 0);
+            driving = true;
+    }
+    else{
+      //  move(0.00, 0);
+        driving = false;
+    }
+    if((y < 400 + 160 || y > 400 + 164 || x > 500 +27 || x < 500 +23) && !aimLocked){
+        //Serial.println("Auto follow on");
+
+        if(y < 560){                                           
+            Serial.println("Up");
+            if(currentVertPos > TURRET_VERT_MAX)
+            {
+            //currentVertPos -=1;
+            //v = 0.5;
+            v = -(y - 562)/562;
+            }
+            else
+            {
+            //  currentVertPos = TURRET_VERT_MAX;
+            v = 0;
+            }
+        }
+        //If the IR is lower than the middle point of the screen the top moves downwards//
+        else if(y > 564){
+            //Serial.println("Down");
+            if(currentVertPos < TURRET_VERT_MIN){
+        // currentVertPos +=1;
+        //v = -0.5;
+        v = -(y-562)/562;
+            }
+            else
+            {
+            // currentVertPos = TURRET_VERT_MIN;
+            v = 0;
+            }
+        }
+
+        if(x < 500 +23)
+        {
+            if( currentHorPos < TURRET_HOR_MAX)
+            {
+                Serial.println("Left");
+                h = -((x - 525)/525);                          //Changes the speed of autonomous turning based on distance from center//
+                //h*=-1;
+                /*if(x < 320-50)
+                {
+                    h = 0.5;
+                }
+                else
+                {
+                            h = 0.2;
+                }
+            Serial.println("Left");*/
+            }
+
+            
+            else
+            {
+            // currentHorPos = TURRET_HOR_MAX;
+            h = 0;
+            }
+        }
+
+        //If the IR light is on the right of the center the turret will automatically turn right//
+        else if(x > 500 + 27)
+        {
+            //Serial.println("Right");
+            //Serial.println(currentHorPos);
+            if( currentHorPos > TURRET_HOR_MIN)
+            {
+                //Serial.println("Yes");
+                h = -((x-525)/525);
+                //h *=-1;
+            // Serial.println(h);
+                /*if(x > 320+50)
+                {
+                    h = -0.5;
+                }
+                else
+                {
+                            h = -0.2;
+                }*/
+
+            }
+            else
+            {
+                //currentHorPos = TURRET_HOR_MIN;
+                h = 0;
+            }
+        }
+        //Serial.println(v);
+
+       
+
+
+
+    }
+
+
+    else
+    {
+
+        startLockedTime = millis();
+            preVertPos = currentVertPos;
+            //currentVertPos -= dist/8 * 20;
+            //calc_y = (formel);
+            //calc_x = (formel);
+        pwm.setPWM(TURRET_VERT, 0, currentVertPos);
+        aimLocked = true;
+        Serial.println("Locked and loaded");
+
+        h = 0;
+        v = 0;
+
+
+        //Serial1.println("Mark");
+    }
+
+    //Serial.print(h);
+   // Serial.print(", ");
+ //   Serial.println(v);
+     turret_move(h,v);
+}
+
+
+
+
+
+// -------------------- Shooting --------------------//
+class Shoot {
+private:
+    int pin1, pin2, pin3;
+public:
+    Shoot(int in1, int in2, int in3) {
+        pin1 = in1; pin2 = in2; pin3 = in3;
+    }
+    void begin() {
+        pinMode(pin1, OUTPUT);
+        pinMode(pin2, OUTPUT);
+        pinMode(pin3, OUTPUT);
+    }
+    void reload(bool cans[], int CurrentCanister) { //Reload sequence//
+            if(gas){  
+                
+                //Serial1.println("Shoot");                                          //If the turret is gas//
+                if(!canisters[CurrentCanister])
+                {
+                    canisters[CurrentCanister] = true;
+                    Serial.print(CurrentCanister + 1);
+                    Serial.println(" has been reloaded");
+                    
+                }
+                else
+                {
+                    Serial.print(CurrentCanister + 1);
+                    Serial.println(" is already reloaded");
+                }
+
+            //Serial.println("Reload");
+            }
+            else                                                //If turret uses a servo//
+            {
+                //It has to reload in a specific order and reload in a specfic order//
+                if(!canisters[2]) 
+                {
+                    pwm.setPWM(SHOOTING_PIN, 0, SHOOTING_TWO);
+                    Serial.println("reload first");
+                    canisters[2] = true;
+                }
+                else if(!canisters[1]) 
+                {
+                    pwm.setPWM(SHOOTING_PIN, 0, SHOOTING_ONE);
+                    Serial.println("reload Second");
+                    canisters[1] = true;
+                }
+                else if(!canisters[0])
+                {
+                    pwm.setPWM(SHOOTING_PIN, 0, SHOOTING_MIN);
+                    Serial.println("reload Third");
+                    canisters[0] = true;
+                }
+                else
+                {
+                    ;
+                }
+                for(int i = 0; i < 3; i++){
+                    Serial.print("Canister [");
+                    Serial.print(i);
+                    Serial.print("]");
+                Serial.println(canisters[i]);
+                }
+                Serial.println("");
+            }
+    }
+    void shot(bool cans[], int CurrentCanister) { //Shooting sequence
+            //delay(2000);
+            if(gas){ //If it is gas
+                //if(canisters[CurrentCanister])
+           // {
+            //Serial1.println("Shoot");
+            Serial.print("Shoot ");
+            Serial.println(CurrentCanister +1);
+           // float Raw3v3 = digitalRead(GAS_SHOT_PIN); 
+            //Serial.println(Raw3v3);
+            pwm.setPWM(4, 0, 4095);
+            delay(50);
+            pwm.setPWM(4,0,0);
+           // digitalWrite(GAS_SHOT_PIN,LOW);
+            canisters[CurrentCanister] = false;
+             //   }
+
+             //   else
+            //    {
+                    Serial.print(CurrentCanister + 1);
+                    Serial.println(" is empty");
+             //   }
+            }
+            else //If it is a servo//
+            {
+                //It has to reload in a specific order and reload in a specfic order//
+                if(canisters[0]) 
+                {
+                    pwm.setPWM(SHOOTING_PIN, 0, shot_one);
+                    Serial.println("shot first");
+                    canisters[0] = false;
+                }
+                else if(canisters[1]) 
+                {
+                    pwm.setPWM(SHOOTING_PIN, 0, shot_two);
+                    Serial.println("shot Second");
+                    canisters[1] = false;
+                }
+                else if(canisters[2])
+                {
+                    pwm.setPWM(SHOOTING_PIN, 0, SHOOTING_THREE);
+                    Serial.println("shot Third");
+                    canisters[2] = false;
+                }
+                else
+                {
+                    ;
+                }
+                for(int i = 0; i < 3; i++){
+                  Serial.print("Canister [");
+                    Serial.print(i);
+                    Serial.print("]");
+                Serial.println(canisters[i]);
+                }
+                Serial.println("");
+            }
+
+    }
+};
+
+// -------------------- Lights --------------------//
+class Lights {
+private:
+    int enaPin, in1Pin, in2Pin;
+    int lightStrength;
+public:
+    Lights(int ena, int in1, int in2) {
+        enaPin = ena; in1Pin = in1; in2Pin = in2;
+        lightStrength = 0;
+    }
+    void begin() {
+        pinMode(enaPin, OUTPUT);
+        pinMode(in1Pin, OUTPUT);
+        pinMode(in2Pin, OUTPUT);
+        analogWrite(enaPin, 0); 
+    }
+    void rear() {
+        digitalWrite(in1Pin, HIGH);
+    }
+    void front(int a = 0) {
+        if (a == 1 && lightStrength != 100) {
+            digitalWrite(in2Pin, HIGH);
+            lightStrength = 100;
+            analogWrite(enaPin, 255); // Max PWM för ESP32 analogWrite
+        } else if (a == 0) {
+            lightStrength = 0;
+            digitalWrite(in2Pin, LOW);
+            analogWrite(enaPin, 0);
+        }
+    }
+};
+
+// -------------------- Steering Servo --------------------//
+class SteeringServo {
+    private: 
+    unsigned long prev_blink = 0;
+    const int interval = 250;
+    int blinkState = LOW;
+public:
+    int channel;
+    SteeringServo(int pwmChannel) {
+        channel = pwmChannel;
+        pwm.setPWM(STEERING_CHANNEL, 0, SERVO_MID);
+    }
+    //Steering control for the wheels of the car
+    void set_angle(float angle) {
+        unsigned long blinkStart = millis();                //Allow the rear lights to blink based on if it is turning in a direction.//
+        float tot_angle = angle * -65;                      //Calculate an appropriate amount of turn//
+        tot_angle += SERVO_MID;                             //Based on the middle point turn a certain amount//
+        //Serial.println(tot_angle);
+        //Serial.println(blinkStart - prev_blink);
+        if (tot_angle > SERVO_MID &&  blinkStart - prev_blink >= interval){         //Right light start blinking when turning to the right//
+            prev_blink = blinkStart;
+            if(blinkState == LOW){
+                blinkState = HIGH;
+            } else {
+                blinkState = LOW;
+            }
+            digitalWrite(REARLIGHT2, blinkState);
+            digitalWrite(LIGHT_IN1, LOW);
+        }
+         else if (tot_angle < SERVO_MID &&  blinkStart - prev_blink >= interval){   //Left light start blinking when turning left//
+            prev_blink = blinkStart;
+            if(blinkState == LOW){
+                //Serial.println("Blinking On");
+                blinkState = HIGH;
+            } else {
+                //Serial.println("Blinking off");
+                blinkState = LOW;
+
+            }
+
+            digitalWrite(REARLIGHT2, LOW);
+            digitalWrite(LIGHT_IN1, blinkState);
+        }
+        
+        //Blocks so that the wheel axel does not turn more than allowed// 
+        if (tot_angle > SERVO_MAX_CAR) tot_angle = SERVO_MAX_CAR;
+        if (tot_angle < SERVO_MIN_CAR) tot_angle = SERVO_MIN_CAR;
+
+        //Makes the car turn//
+        pwm.setPWM(0, 0, tot_angle);
+    }
+
+    //To reset the wheels to the center when stopping or when the joystick is close to the center to eliminate
+    //the constant angled wheels
+    void center() { pwm.setPWM(0, 0, SERVO_MID); }
+};
+
+class CarMotor {
+public:
+    //int EnaA, In1A, In2A, EnaB, In1B, In2B;
+    CarMotor(/*int enaA, int in1A, int in2A, int enaB, int in1B, int in2B*/) {
+
+    }
+    void move(float speed, float angle) {
+        speed = constrain(speed, -1.0f, 1.0f); //Makes sure that the speed recieved does not exceed -1 to 1
+        speed *= 50;                           //The speed which can be changed to an maximum of 255 since the motor used is 8-bit
+                //Serial.println(speed);
+        if (speed < 0) {                       //If the speed is negative (backing up) the rearlights will turn on//
+             digitalWrite(LIGHT_IN1, HIGH);
+             digitalWrite(REARLIGHT2, HIGH);
+        }
+         else if(speed >= 0 && angle == 0 && state != "idle"  ){
+            digitalWrite(LIGHT_IN1, LOW);
+            digitalWrite(REARLIGHT2, LOW);
+        }
+
+        if(speed > 0){
+        digitalWrite(PWM_INH, HIGH);            //Allows the car to drive//
+        analogWrite(PWM_IN, 0);
+        analogWrite(PWM_IN2, abs(speed));
+              //Car speed pin//
+        //     analogWrite(PWM_IN2, 0);
+        }
+        
+        else if(speed < 0){
+        digitalWrite(PWM_INH, HIGH);            //Allows the car to drive//
+        analogWrite(PWM_IN2, 0);
+        analogWrite(PWM_IN, abs(speed));       //Car speed pin//
+        //     analogWrite(PWM_IN2, 0);
+        }
+        else
+        {
+        digitalWrite(PWM_INH, LOW);            //Allows the car to drive//
+        analogWrite(PWM_IN, 0);
+        analogWrite(PWM_IN2, 0);       //Car speed pin//
+        }
+        
+        if (speed != 0)
+        {
+            digitalWrite(HEADLIGHT1, HIGH);
+        }
+
+        //Serial.println(speed);
+        
+        /*else if(speed < 0){
+            digitalWrite(PWM_INH,HIGH);
+            analogWrite(PWM_IN2, abs(speed));
+                 analogWrite(PWM_IN, 0);
+        }*/
+    }
+    void stop() {                               //Stops the car from moving//
+        digitalWrite(PWM_INH, LOW);
+        analogWrite(PWM_IN, 0);
+        analogWrite(PWM_IN2, 0);
+        //front_light(false);
+    }
+};
+
+// -------------------- Turret Control --------------------//
+class TurretMotor {
+private:
+    float prevSpeed = 0;
+    unsigned long lastUpdateTime = 0;
+    float currentHorSpeed = 0; 
+    float currentVertSpeed = 0;
+
+public:
+    int horChannel, vertChannel;
+    TurretMotor(int hor, int vert) {
+        horChannel = hor; vertChannel = vert;
+        currentHorPos = SERVO_MID;
+        currentVertPos = SERVO_MID;
+        pwm.setPWM(TURRET_HOR, 0, SERVO_MID);
+        pwm.setPWM(TURRET_VERT, 0, TURRET_VERT_MIN);
+    }
+
+    void set_speed(float horizontal, float vertical) {
+        // Set the speed of turret which can be changed to make it slower or faster//
+        currentHorSpeed = horizontal * 150.0; 
+        currentVertSpeed = vertical * 150.0;
+        //Serial.println(currentVertSpeed);
+        
+    }
+
+    void update() {
+        unsigned long currentTime = millis();
+        float deltaTime = (currentTime - lastUpdateTime) / 1000.0; 
+        lastUpdateTime = currentTime;
+
+        if(abs(currentVertSpeed) > 1.0)
+        {
+            //Serial.println(currentVertSpeed);
+            currentVertPos -= currentVertSpeed * deltaTime;
+            currentHorCam -= currentVertSpeed * deltaTime;
+
+            // Keeps the turret within limits vertically
+            if (currentVertPos > TURRET_VERT_MIN) currentVertPos = TURRET_VERT_MIN;
+            if (currentVertPos < TURRET_VERT_MAX) currentVertPos = TURRET_VERT_MAX;
+            if (currentHorCam > 200) currentHorCam = 200;
+            if (currentHorCam < 100) currentHorCam = 100;
+            //Serial.println(currentVertPos);
+            pwm.setPWM(vertChannel, 0, (int)currentVertPos);
+                        pwm.setPWM(CAM_PIN, 0, (int)currentHorCam);
+        }
+
+        if (abs(currentHorSpeed) > 1.0) { // Deadzone
+            currentHorPos += currentHorSpeed * deltaTime;
+
+
+            // Keeps the turret within limits horizontally
+            if (currentHorPos > TURRET_HOR_MAX) currentHorPos = TURRET_HOR_MAX;
+            if (currentHorPos < TURRET_HOR_MIN) currentHorPos = TURRET_HOR_MIN;
+
+            
+            //Serial.println(currentHorPos);
+            pwm.setPWM(horChannel, 0, (int)currentHorPos);
+
+            //
+            /*float deltaSpeed = currentHorSpeed - prevSpeed;
+            Serial.print("Current Speed: ");
+            Serial.println(deltaSpeed);
+            prevSpeed = currentHorSpeed;*/
+
+            //Serial.print("Current Delta time: ");
+            //Serial.println(deltaTime);
+        }
+        //currentHorSpeed = 0;
+    }
+
+
+    void stop() { // Sets the turret to default position when shutting of the program
+       // Serial.println("Stoppar torn");
+        pwm.setPWM(TURRET_HOR, 0, SERVO_MID);
+        pwm.setPWM(TURRET_VERT,0, TURRET_VERT_MIN);
+        currentHorSpeed = 0;
+        currentVertSpeed = 0;
+        currentHorPos = SERVO_MID;
+        currentVertPos = TURRET_VERT_MIN;
+        pwm.setPWM(CAM_PIN, 0, 150);
+    }
+};
+
+class Car {
+public:
+    CarMotor drive; SteeringServo steering; TurretMotor turret;
+    Car(/*int EnaA, int In1A, int In2A, int EnaB, int In1B, int In2B, */int steeringChannel,int turretHorChannel, int turretVertChannel)
+        : drive(/*EnaA, In1A, In2A, EnaB, In1B, In2B*/), steering(steeringChannel), turret(turretHorChannel, turretVertChannel) {}
+    void move(float speed, float steering_angle) {
+        steering.set_angle(steering_angle);
+        drive.move(speed, steering_angle);
+    }
+    void stop() { drive.stop(); steering.center(); turret.stop(); }
+};
+
+// ==========================================================
+//            GLOBAL INSTANCES
+// ==========================================================
+Car* mShorad = nullptr;
+Shoot myShooter(SHOOT_IN1, SHOOT_IN2, SHOOT_IN3);
+//Lights myLights(78, LIGHT_IN1, LIGHT_IN2);
+
+// ==========================================================
+//            HELPER FUNCTIONS
+// ==========================================================
+void wheels_move(float speed, float turn) { if (mShorad) mShorad->move(speed, turn * 45.0f); }
+void wheels_stop() { if (mShorad) { mShorad->drive.stop(); mShorad->steering.center(); } }
+
+
+void turret_move(float h, float v) { if (mShorad) mShorad->turret.set_speed(h, v); 
+                                        }
+void turret_stop() { if (mShorad) mShorad->turret.stop(); }
+
+
+
+void reload_canister() { 
+    myShooter.reload(canisters, CurrentCanister); 
+}
+void shoot_canister() { 
+    myShooter.shot(canisters, CurrentCanister); 
+}
+void front_light(bool on) { 
+    //digitalWrite(LIGHT_IN1, on ? HIGH : LOW); 
+    //myLights.front(on ? 1 : 0);            
+}
+
+// ==========================================================
+//            FIXED ASYNC SERVER HANDLERS WITH TIMEOUTS
+// ==========================================================
+
+// -------------------- Idle State Turning --------------------//
+//When idle the turret starts turning//
+void idle_state()
+{
+             //digitalWrite(BLUE, LOW); digitalWrite(GREEN, HIGH); digitalWrite(GREEN, LOW);
+
+                    if(currentVertPos >= TURRET_VERT_MAX + 50)
+                    {currentVertPos -= 1;
+                    if(currentVertPos <= TURRET_VERT_MAX + 50){
+                       currentVertPos = TURRET_VERT_MAX +50;
+                        }}
+                    else if(currentVertPos <= TURRET_VERT_MAX + 50)
+                    {
+                        currentVertPos += 1;
+                        if(currentVertPos >= TURRET_VERT_MAX + 50){
+                       currentVertPos = TURRET_VERT_MAX +50;
+                        }
+
+                    }
+                    
+                    pwm.setPWM(TURRET_VERT,0,currentVertPos);
+                    
+                    if(!left){
+                    currentHorPos +=1;
+                    pwm.setPWM(TURRET_HOR, 0, currentHorPos);
+                    //Serial.print(servoPins[i]);
+                    //Serial.print(pos);
+                    
+                    //delay(100);
+                    if(currentHorPos >= TURRET_HOR_MAX  )
+                    {
+                        left = true;
+                    }
+                    }
+
+
+
+                    else{
+                        currentHorPos -= 1;
+                    pwm.setPWM(TURRET_HOR, 0, currentHorPos);
+                    //Serial.print(servoPins[i]);
+                    //Serial.print(pos);
+                    
+                    //delay(100);
+                    if(currentHorPos <= TURRET_HOR_MIN  )
+                    {
+                        left = false;
+                    }
+                    }
+                   //Serial.println(currentVertPos);
+                    //Serial.println(left);
+
+                    
+
+
+                   
+                //turret_move(135, 0); // Varning: Om detta är "idle" kanske du vill byta ut 135 mot något annat med nya systemet
+}
+
+// -------------------- HUD --------------------//
+void handleHUD() { // Connects to the HUD client//
+    if (!hudClient.connected()) {
+        hudClient.stop(); 
+        hudClient = hudServer.accept(); 
+        if (hudClient) {
+            hudClient.setTimeout(1);
+            hudSafetyTriggered = false;
+        }
+    }
+
+    if (hudClient && hudClient.available()) {
+        String data = hudClient.readStringUntil('\n');       //Recieving info about the state
+        data.trim();
+            if(gas){
+                hudClient.println("Gas");
+            }
+            else{
+                hudClient.println("Servo");
+            }
+
+        if (data.length() > 0) {
+            set_state(data);
+            //hudClient.print("ACK\n");
+
+                                //Serial.println(state);
+
+            if (state == "idle" ) {
+                //In idle state the light will be white
+                Serial1.println("idle");
+                  digitalWrite(HEADLIGHT1, HIGH);
+                    digitalWrite(REARLIGHT2, HIGH);
+                      digitalWrite(LIGHT_IN1, HIGH);
+                        digitalWrite(LIGHT_IN2, HIGH);
+                analogWrite(BLUE, 255); analogWrite(GREEN, 255); analogWrite(RED, 255);
+                idleCurrentTimer = millis();
+
+
+               // Serial.print(idleStartTimer);
+               // Every 5 minutes or when autospin is true it will start to spin automatically
+                if(idleCurrentTimer - idleStartTimer > 300000 && !auto_spin){
+                    auto_spin = true;
+                    idleResetStart = millis();
+                    Serial.println("Autospin ON");
+                    idleStartTimer = millis();
+
+                }
+
+
+                if(auto_spin && idleCurrentTimer - idleResetStart < 90000)
+                {
+                    idle_state();
+                  //  Serial.println("Spinning");
+                }
+                //After spinning the turret for 1.5 minutes the turret will reset
+                else if(auto_spin && idleCurrentTimer - idleResetStart > 90000)
+                {
+                    pwm.setPWM(TURRET_HOR, 0, SERVO_MID);
+                    pwm.setPWM(TURRET_VERT,0, TURRET_VERT_MIN);
+                    auto_spin = false;
+                    idleStartTimer = millis();
+                    Serial.print("GOING HOME");
+                    currentHorPos = SERVO_MID;
+                    currentVertPos = TURRET_VERT_MIN;
+                }
+   
+            }
+
+            //When in Operative state the light will be green and the autospin will be stopped 
+            else if (state == "Operative") {
+              //  digitalWrite(Yellow, LOW); digitalWrite(White, LOW); digitalWrite(GREEN, HIGH);
+                 analogWrite(BLUE, 0); analogWrite(GREEN, 255); analogWrite(RED, 0);
+                 idleStartTimer = millis();
+                 auto_spin = false;
+            }
+
+            //When in connect state the light will be yellow and the autospin will be stopped 
+            else if(state == "connect")
+            {
+                Serial1.println("Reset");
+                 analogWrite(BLUE, 0); analogWrite(GREEN, 80); analogWrite(RED, 255);
+                 idleStartTimer = millis();
+                 auto_spin = false;
+            }
+            //Serial.println(get_state());
+        }
+    }
+ 
+}
+
+// -------------------- Graph --------------------//
+void handleGraph() {
+    if (!graphClient.connected()) {
+        graphClient.stop();
+
+        graphClient = graphServer.accept();
+        if (graphClient) {
+            graphClient.setTimeout(1);
+        }
+    }
+
+    if (graphClient && graphClient.connected()) {
+
+        if (millis() - lastGraphTime >= 50) {                   //Sends information about the voltage and current passing through the system to the steamdeck
+
+            float Raw5v = analogReadMilliVolts(FIVE_VOLT);
+            float Raw3v3 = analogReadMilliVolts(THREE_VOLT);
+            float Raw14v = analogReadMilliVolts(FOURTEEN_VOLT);
+            // 14.8 V
+            //float voltage3v3 = ((Raw3v3 / 4095.0) * 3.323) / 0.9393;
+
+        float sensor14V = Raw14v / (0.552 / 2.585)/1000;
+            
+            float current14v = (sensor14V - 2.5817) / 0.2;
+        if(totalAmount14v < MAX_VARIABLES){ // Makes sure to just use the 100 latest values
+                totalPower14v[totalAmount14v] = Raw14v;
+                totalAmount14v ++;
+            }
+            else{
+                for(int i = 0; i< MAX_VARIABLES -1; i++){
+                    totalPower14v[i] = totalPower14v[i +1];
+                }
+                totalPower14v[MAX_VARIABLES-1] = Raw14v;
+            }
+            float sum14v = 0;
+            for(int i = 0; i < totalAmount14v; i++)
+            {
+                sum14v += totalPower14v[i];
+            }
+
+
+
+
+
+            float sensor5V = Raw5v / (0.552 / 2.585)/1000;
+            
+            float current5v = (sensor5V - 2.5817) / 0.2;
+        if(totalAmount5v < MAX_VARIABLES){ // Makes sure to just use the 100 latest values
+                totalPower5v[totalAmount5v] = Raw5v;
+                totalAmount5v ++;
+            }
+            else{
+                for(int i = 0; i< MAX_VARIABLES -1; i++){
+                    totalPower5v[i] = totalPower5v[i +1];
+                }
+                totalPower5v[MAX_VARIABLES-1] = Raw5v;
+            }
+            float sum5v = 0;
+            for(int i = 0; i < totalAmount5v; i++)
+            {
+                sum5v += totalPower5v[i];
+            }
+            // 5.0 V
+            //float voltage3v3 = ((Raw3v3 / 4095.0) * 3.323) / 0.9393;
+            float sensor3V = Raw3v3 / (1.573 / 2.605)/1000;
+            float current3v = (sensor3V - 2.538) / 0.2;
+            if(totalAmount3v3 < MAX_VARIABLES){ // Makes sure to just use the 100 latest values
+                totalPower3v3[totalAmount3v3] = Raw3v3;
+                totalAmount3v3 ++;
+            }
+            else{
+                for(int i = 0; i< MAX_VARIABLES -1; i++){
+                    totalPower3v3[i] = totalPower3v3[i +1];
+                }
+                totalPower3v3[MAX_VARIABLES-1] = Raw3v3;
+            }
+            float sum3v = 0;
+            for(int i = 0; i < totalAmount3v3; i++)
+            {
+                sum3v += totalPower3v3[i];
+            }
+
+
+
+
+
+            // 3.3 V
+            /*float voltage3v3 = ((Raw3v3 / 4095.0) * 3.323) / 0.9393;
+            float sensorV = voltage3v3 / (1.548 / 2.607);
+            float current = (sensorV - 2.538) / 0.2;*/
+
+            lastGraphTime = millis();
+            //int value = digitalRead(PIN);
+            //digitalWrite(17, value == HIGH ? LOW : HIGH);
+            //Serial.println(current);
+            //Serial.println(Raw3v3);
+            //Serial.print("Voltage: ");
+
+    
+            float averagePower14v = sum14v/totalAmount14v;
+            float averagePower5v = sum5v/totalAmount5v;
+            float averagePower3v = sum3v/totalAmount3v3;
+            graphClient.print(averagePower3v, 4);
+            graphClient.print(","); 
+            graphClient.print(averagePower5v, 4); 
+            graphClient.print(",");
+            graphClient.print(averagePower14v/1000, 4);
+            graphClient.print(",");
+            graphClient.print(current3v/1000,4);
+            graphClient.print(",");
+            graphClient.print(current5v/1000,4);
+            graphClient.print(",");
+            graphClient.println(current14v/1000,4);
+
+
+
+
+                     //  Serial.println(voltage3v3, 4);
+            //Serial.print("Sensor: ");
+//                        Serial.println(sensorV, 4); 
+          /* Serial.print("Current14v: ");
+            Serial.println(current14v/1000,4);
+            Serial.print("Average voltage14v: ");
+            Serial.println(averagePower14v/1000,4);
+            Serial.print("Current5v: ");
+            Serial.println(current5v/1000,4);
+            Serial.print("Average voltage5v: ");
+            Serial.println(averagePower5v/1000,4);
+            Serial.print("Current3v: ");
+            Serial.println(current3v/1000,4);
+            Serial.print("Average voltage3v: ");
+            Serial.println(averagePower3v/1000,4);*/
+            //Serial.println(sizeof(totalPower5v)/sizeof(totalPower5v[0]));
+        }
+    }
+}
+
+
+// -------------------- Buttons --------------------//
+void handleButtons() {
+    if (!buttonsClient.connected()) {
+        buttonsClient.stop();
+        buttonsClient = buttonsServer.accept();
+        if (buttonsClient) {
+            buttonsClient.setTimeout(1); 
+            buttonsClient.print("[true,true,true]\n");
+        }
+    }
+
+    if (buttonsClient && buttonsClient.available()) {
+        String msg = buttonsClient.readStringUntil('\n');
+        msg.trim();
+
+        if (msg.length() > 0) { //Checks the status on te buttons that have been pressed if they are either pressed or released
+            int a, b, x, y, shoulder_l, shoulder_r;
+            if (sscanf(msg.c_str(), "%d,%d,%d,%d,%d,%d", &a, &b, &x, &y, &shoulder_l, &shoulder_r) == 6) {
+                
+                if (get_state() == "Operative") { //If the state is Operative then the buttons will have a function
+                
+                    if (shoulder_l == 1) {
+                        Serial1.println("Shoot");
+                        reload_canister();
+                        buttonsClient.print(String(canisters[0]) + "," + String(canisters[1]) + "," + String(canisters[2]) + "\n");
+                    }
+                    if (shoulder_r == 1) {
+                        Serial1.println("Shoot");
+                        shoot_canister();
+                        buttonsClient.print(String(canisters[0]) + "," + String(canisters[1]) + "," + String(canisters[2]) + "\n");
+                    }
+                    
+                    //if (a == 1) //front_light(true); 
+                    //else front_light(false); 
+
+                    if (b == 1) 
+                    {
+                        if(gas)
+                        CurrentCanister = (CurrentCanister + 1) % 3;
+                    Serial1.println("Right");
+                        }
+                    if (x == 1) {
+                        if(gas){
+                        CurrentCanister = (CurrentCanister + 2) % 3;
+                        Serial1.println("Left");
+                            }
+                        }
+                    if(a == 1) // Activates the autonomous system
+                    {
+                        if(!autonomous){
+                        autonomous = true;
+                        Serial1.println("Search");
+
+                        }
+                        else{
+                            autonomous = false;
+                            Serial1.println("Stop search");
+                        }
+                        //idleResetStart = millis();
+                        Serial.print("Autonomous: ");
+                        Serial.println(autonomous);
+                    }
+                    if(y == 1){
+                        if(gas)
+                        {
+                            Serial.println("Servo");
+                            gas = false;
+                           //  pwm.setPWM(SHOOTING_PIN, 0, SHOOTING_THREE);
+                             Serial.println("Switch");
+
+                        }
+                        else
+                        {
+                            Serial.println("Gas");
+                            gas = true;
+                           //  pwm.setPWM(SHOOTING_PIN, 0, SHOOTING_THREE);
+                             Serial.println("Switch");
+
+                        }
+                    }
+
+                    //Serial.print(gas);
+
+                    //Serial.print("Selected Canister: ");
+                    //Serial.println(CurrentCanister + 1);
+                }
+                else if(get_state() == "idle") //If the state is idle then when anything is sent it is meant to activate auto spin
+                {
+                    Serial.println("spinning");
+                    idleResetStart = millis();
+                    auto_spin = true;
+                    idleStartTimer = millis();
+
+                   // Serial.println(auto_spin);
+                }
+            }
+        }
+    }
+}
+// -------------------- Joystick --------------------//
+void handleJoystick() {
+    if (!joystickClient.connected()) {
+        joystickClient.stop();
+        joystickClient = joystickServer.accept();
+        if (joystickClient) {
+            joystickClient.setTimeout(1);
+            joystickSafetyTriggered = false; 
+        }
+    }
+
+    if (joystickClient && joystickClient.connected()) {
+        if (joystickClient.available()) {
+            String msg = joystickClient.readStringUntil('\n');
+            msg.trim();
+
+
+            if (msg.length() > 0) {
+                int v0, v1, v2, v3; //Check the values of the joysticks to control the turret and car//
+                if (sscanf(msg.c_str(), "%d,%d,%d,%d", &v0, &v1, &v2, &v3) == 4) {
+                    float car_turn = v0 / -32768.0f;
+                    float car_speed = v1 / -32768.0f;
+                    float turret_h = (v2 / -32768.0f);
+                    float turret_v = (v3 / -32768.0f);
+                    //Serial.println(turret_h);
+                    //Serial.println(car_speed);
+                        //if (abs(car_speed) > 0.05f || abs(car_turn) > 0.05f) {
+                            mShorad->move(car_speed, car_turn);
+                        //}
+
+                        // Anropa tidsuppdatering för hastighet
+                        turret_move(turret_h, turret_v);
+                     //   Serial.println(turret_v);
+                   /* if(check == 1)
+                    {
+                     first = v0 / -32768.0f;
+                     second = v1 / -32768.0f;
+                     third = (v2 / -32768.0f);
+                     fourth = (v3 / -32768.0f);
+                    }
+                    //aimLocked = false;
+                 // Serial1.println("SHooting");
+                 else if(check == 2){
+
+                 }
+                    //Serial.println(turret_h);
+                    //Serial.println(car_speed);
+                       // if (abs(car_speed) > 0.05f || abs(car_turn) > 0.05f) {
+                        if(check == 2 && ((abs(car_turn) > 0.05f && abs(first) > 0.05f) || (abs(car_speed) >0.05f && abs(second) > 0.05f))){
+                            mShorad->move(car_speed, car_turn);
+                        }
+                        else if(check == 2 &&((abs(car_turn) < 0.05f && abs(first) < 0.05f )|| (abs(car_speed) < 0.05f && abs(second) < 0.05f)) )
+                        {
+                            mShorad->move(car_speed, car_turn);
+                        }
+                            
+                       // }
+                       /* else{
+                            mShorad->move(0,0);
+                            Serial.println("Hello");
+                        }
+
+                        // Anropa tidsuppdatering för hastighet
+                        if(check == 2 && ((abs(turret_h) > 0.05f && abs(third) > 0.05f )|| (abs(turret_v) > 0.05f && abs(fourth) > 0.05f))){
+                        turret_move(turret_h, turret_v);
+                        
+                        }
+                        else if(check == 2 && ((turret_h ==0 && third == 0 ) ||turret_v == 0 && fourth == 0))
+                        {
+                            turret_move(turret_h, turret_v);
+                        }
+                        if(check == 2)
+                        {check = 1;}
+                        if(check == 1)
+                        {
+                            check  = 2;
+                            delay(10);
+                        }
+                     //   Serial.println(turret_v);
+
+                    */
+                }
+            }
+        }
+    } else {
+        if (!joystickSafetyTriggered) {
+            wheels_stop();
+            turret_stop();
+            autonomous = false;
+            canisters[0] =  false;
+            canisters[1] = false;
+            canisters[2] = false;
+            joystickSafetyTriggered = true;
+            state = "connect";
+        }
+    }
+}
+
+// -------------------- Setup --------------------//
+void setup() {
+    Serial.begin(115200);
+    Serial1.begin(115200, SERIAL_8N1, RXD_PIN, TXD_PIN);
+    //analogSetWidth(11);
+    //analogSetCycles(8);
+    //analogSetSamples(64);
+    //analogSetClockDiv(8);
+    //analogSetAttenuation(ADC_11db);
+
+    // Initiera servos
+    pwm.begin();
+    pwm.setPWMFreq(50);
+    pwm.setPWM(0, 0, 300);
+    pwm.setPWM(CAM_PIN,0,150);
+    pinMode(BLUE, OUTPUT);
+    pinMode(GREEN, OUTPUT);
+    pinMode(RED, OUTPUT);
+    pinMode(FIVE_VOLT, OUTPUT);
+    pinMode(THREE_VOLT, OUTPUT);
+    pinMode(FOURTEEN_VOLT, OUTPUT);
+    pinMode(LIGHT_IN2, OUTPUT);
+    pinMode(LIGHT_IN1, OUTPUT);
+    digitalWrite(LIGHT_IN1, LOW);
+    digitalWrite(LIGHT_IN2, HIGH);
+    digitalWrite(FIVE_VOLT, LOW);
+    digitalWrite(THREE_VOLT, LOW);
+    digitalWrite(FOURTEEN_VOLT, LOW);
+    digitalWrite(SHOOT_IN1, HIGH);
+    digitalWrite(SHOOT_IN2, HIGH);
+    digitalWrite(SHOOT_IN3, HIGH);
+    pwm.setPWM(SHOOTING_PIN, 0, 250);
+   // pwm.setPWM(SHOOTING_PIN, 0, 250);
+    // Status LEDs och system-pins
+    //pinMode(PWM_IN, OUTPUT); pinMode(Yellow, OUTPUT); pinMode(White, OUTPUT); pinMode(GREEN, OUTPUT);
+    digitalWrite(BLUE, LOW); analogWrite(GREEN, 80); digitalWrite(RED, HIGH);
+     //analogWrite(BLUE, 255); analogWrite(GREEN, 255); analogWrite(RED, 255);
+    pinMode(PWM_IN,OUTPUT);
+    pinMode(PWM_IN2,OUTPUT);
+  //     ledcAttach(PWM_IN, 5000, LEDC_RESOLUTION);
+  //  ledcAttach(PWM_IN2, 5000, LEDC_RESOLUTION);
+   // ledcWrite(PWM_IN, 0);
+   //   ledcWrite(PWM_IN2, 0);
+    analogWrite(PWM_IN2,0);
+    analogWrite(PWM_IN,0);
+    pinMode(PWM_INH,OUTPUT);
+    digitalWrite(PWM_INH, LOW);
+    pinMode(HEADLIGHT1, OUTPUT);
+    pinMode(REARLIGHT2, OUTPUT);
+    digitalWrite(HEADLIGHT1, HIGH); //Ändra till high
+    digitalWrite(REARLIGHT2, LOW);
+    pwm.setPWM(TURRET_HOR, 0, SERVO_MID);
+    pwm.setPWM(TURRET_VERT, 0, TURRET_VERT_MIN);
+    // Initiera nya klasser
+    myShooter.begin();
+    //myLights.begin();
+    idleStartTimer = millis();
+
+
+    // WiFi Setup
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(ssid, password);
+
+    // Servrar192.168
+    hudServer.begin();
+    graphServer.begin();
+    buttonsServer.begin();
+    joystickServer.begin();
+
+    mShorad = new Car(/*MOTOR_ENA, MOTOR_IN1, MOTOR_IN2, MOTOR_ENB, MOTOR_IN3, MOTOR_IN4, */STEERING_CHANNEL, TURRET_HOR, TURRET_VERT);
+    //Serial1.println("Canister1");
+
+   // Serial.println("ESP32 System Online");
+}
+
+// -------------------- Main Loop --------------------
+void loop() {
+    //
+    handleHUD();
+    handleGraph();
+    handleButtons();
+    handleJoystick();
+    if(Serial1.available()){
+ 
+
+     //Recieves and sends the infromation through the RXD and TXD ports to and from the Raspberry pi
+    if(autonomous){
+    //    Serial.println("hej");
+   // Serial.println("YES");
+        String raw = Serial1.readStringUntil('\n'); //Reads coordinates recieved from the raspberry pi
+    raw.trim();
+
+    //Serial.print("Raw: ");
+  // Serial.println(raw);
+
+    // Split into float values
+    float numbers[10];   // max 10 values
+    int count = 0;
+
+    char *token = strtok((char*)raw.c_str(), ",");
+    while (token != NULL && count < 10) {
+      numbers[count++] = atof(token);
+      token = strtok(NULL, ",");
+    }
+
+    // Print parsed integers
+    /*Serial.println("Parsed values:");
+    for (int i = 0; i < count; i++) {
+      Serial.println(numbers[i]);
+    }*/
+    //Serial.println(numbers[0]);
+    //Serial.println(numbers[1]);
+    x2 = numbers[0];
+    y2 = numbers[1];
+
+    autonomousy(numbers[0], numbers[1], numbers[2]);
+
+    //Serial.println(numbers[2], 3);
+
+    //  Serial1.println("Connected"); //Sends information to the raspberry
+ 
+  }
+    }
+    //}
+  uint8_t numClients = WiFi.softAPgetStationNum();
+  //Serial.println(numClients);
+   //   Serial.println(canisters[0]);
+   //   Serial.println(canisters[1]);
+   //   Serial.println(canisters[2]);
+   // 
+
+    if(autonomous) //Checks if autonomous systems are gonna be active
+    {
+       // Serial1.println("Lock");
+    }
+
+    //Serial.println(currentHorPos);
+
+    if (mShorad) {
+        mShorad->turret.update();
+    }
+    //float a = analogRead(PWM_IN);
+ //   Serial.println(a);
+
+    static unsigned long lastSerialPrint = 0;
+    if (millis() - lastSerialPrint >= 500) {
+        lastSerialPrint = millis();
+    }
+}
